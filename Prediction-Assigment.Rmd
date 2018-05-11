@@ -1,0 +1,173 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Spyridon Iliopoulos"
+date: "11 Mai 2018"
+output: 
+        html_document:
+        highlight: tango
+        citation_package: natbib
+fontsize: 10pt
+<!-- mainfont: Lucida Bright -->         
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Synopsis
+
+For the Assigment we will use the PML Dataset. More information is available from the website:http://groupware.les.inf.puc-rio.br/har. (See the section on the Weight Lifting Exercise Dataset). 
+The Dataset is based on Devices such as Jawbone Up, Nike FuelBand, and Fitbit. 
+
+*One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. *
+
+We will use Cross validation for only the complete Cases and the best Model is the Random Forest with Accuracy about $98%$ and not Stochastic Gradient Boosting.
+
+## Load the Data 
+Load all necesserary Packages and load the the Training and Test Data. When importing the Data in RSudio we can exclude the first 7 Columns, because the have no meaning for our Fited Data. 
+
+
+```{r  DownData,message=FALSE,warning=FALSE}
+library("readr");library("dplyr");library("caret", quietly = TRUE);library("gmodels") ; library("ROCR");library("vcd");library("rpart.plot") ;
+library("caretEnsemble");library("mlbench");library("randomForest");library("C50");library("caTools"); library("MASS");library("e1071"); library("kableExtra");library("rpart")
+#setwd("~/Documents/Coursera/Data Science/Practical Machine Learning/Prediction-Assignment/")
+
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",destfile = "pml-training.csv", mode="wb")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",destfile = "pml-testing.csv", mode="wb")
+```
+
+```{r  LoadData , message=FALSE,warning=FALSE,cache=FALSE}
+pml_training <- read_csv("pml-training.csv", 
+    col_types = cols(X1 = col_skip(), cvtd_timestamp = col_skip(), 
+        new_window = col_skip(), num_window = col_skip(), 
+        raw_timestamp_part_1 = col_skip(), 
+        raw_timestamp_part_2 = col_skip(), 
+        user_name = col_skip()), na = c("NA","NaN","","#DIV/0!"))
+pml_testing <- read_csv("pml-testing.csv", 
+    col_types = cols(X1 = col_skip(), cvtd_timestamp = col_skip(), 
+        new_window = col_skip(), num_window = col_skip(), 
+        raw_timestamp_part_1 = col_skip(), 
+        raw_timestamp_part_2 = col_skip(), 
+        user_name = col_skip()), na = c("NA","NaN","","#DIV/0!"))
+
+training <- tbl_df(pml_training)
+testing <- tbl_df(pml_testing)
+```
+
+## Preprocess the Data
+
+We will also use only complete cases. These *Transformations* reduces also the Number of Columns.
+
+```{r  CleanData }
+training <- training[,complete.cases(t(training))]
+testing <- testing[,complete.cases(t(testing))]
+
+
+```
+
+
+# Fitting Predictive Models
+
+We will run various machine Learning Algorithms using **caret** Packages: Random forest(*rf*), Linear discriminant analysis(*lda*) and Stochastic Gradient Boosting(*gbm*).
+
+We will use Crossvalidation with trainControl  but only 2 Folds. Because the Training of the Models takes several ours, Code is also include to save and Load the Models if needed. All the Columns are fitted against the *classe* and we are trying to Predict the Test Labels/Classes. 
+
+I tried also *C50* and *CART* (,**C50**,**rpart**) but the Performance was not better then the Random Tree. In *version 2* of the Documents the use of CaretEnsemble.
+
+```{r traicontrol}
+ctrl <- trainControl(method = "cv", number = 5) 
+```
+
+## Train using different models.
+
+### Stochastic Gradient Boosting
+```{r gbmf ,cache = TRUE }
+
+gbmf <- train(classe ~., data=training, method='gbm',verbose=FALSE, trControl = trainControl(method = "cv"))
+gbmf
+```
+
+###  Linear discriminant analysis
+
+```{r lda,cache = TRUE }
+
+ldaf <- train(classe ~., data=training, method='lda',verbose=FALSE, trControl = trainControl(method = "cv"))
+ldaf
+```
+
+### Random forest 
+For the Random Forest we restrict the Depth to 512 Trees.
+```{r rf ,cache = TRUE }
+
+m_rf <- train(classe ~ ., data = training, method = "rf", verbose=FALSE,trControl = trainControl(method = "cv"),ntree =512)
+m_rf
+m_rf$finalModel
+```
+
+```{r C50, eval=FALSE,echo=FALSE,cache = TRUE }
+
+C50 <- train(classe ~ ., data = training, method = "C5.0", verbose=FALSE, trControl = trainControl(method = "cv"))
+C50
+```
+
+```{r rpart,eval=FALSE,echo=FALSE,cache = TRUE}
+r_part <- train(classe ~ ., data = training, method = "rpart", verbose=FALSE)
+r_part
+```
+
+If we want to Save our Models
+
+```{r SaveModels,echo=TRUE,eval=TRUE}
+# save the model to disk
+saveRDS(gbmf, "./gbmf.rds")
+saveRDS(ldaf, "./ldaf.rds")
+saveRDS(m_rf, "./m_rf.rds")
+#saveRDS(C50, "./C50.rds")
+#saveRDS(r_part, "./r_part.rds")
+```
+
+And load them later.
+
+```{r LoadModels,echo=TRUE,eval=FALSE}
+gbmf <-readRDS("./gbmf.rds")
+ldaf <- readRDS("./ldaf.rds")
+m_rf <- readRDS("./m_rf.rds")
+#C50 <- readRDS("./C50.rds")
+#r_part <- readRDS("./r_part.rds")
+```
+
+
+
+# Predictions
+
+Lets create some Predictions on the Test Data (Quiz Answers).
+
+## Prediction on test data.
+```{r  Predict_Test }
+gbmf_reste <- predict(gbmf, newdata=testing)
+ldaf_reste <- predict(ldaf, newdata=testing)
+m_rf_reste <- predict(m_rf, newdata=testing)
+#r_partte <- predict(r_part, newdata=testing)
+#C50_reste <- predict(C50, newdata=testing)
+```
+
+And the Predictions for the Quiz using the Predictions of the Random Forest.
+```{r  }
+m_rf_reste
+``` 
+## Final Model Results
+For our Final Model Fit using Random Forest we preProcess the Data with PCA and we crossvalidate 5 folds and repeat twice.
+
+```{r  FinalFit , warning=FALSE,message=FALSE,cache=FALSE}
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 2) 
+model.rf <- train(classe ~ ., data = training, method = "rf", trControl=ctrl,preProcess="pca")
+save(model.rf, file = "finalmodel.RData")
+```
+
+
+## Infos about the final Model
+```{r}
+model.rf
+model.rf$finalModel
+```
